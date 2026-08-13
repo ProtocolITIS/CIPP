@@ -9,8 +9,8 @@ import CippPasswordSettings from "../../../components/CippSettings/CippPasswordS
 import CippDnsSettings from "../../../components/CippSettings/CippDnsSettings";
 import CippCacheSettings from "../../../components/CippSettings/CippCacheSettings";
 import CippBackupSettings from "../../../components/CippSettings/CippBackupSettings";
-import CippBrandingSettings from "../../../components/CippSettings/CippBrandingSettings";
 import CippBackupRetentionSettings from "../../../components/CippSettings/CippBackupRetentionSettings";
+import CippLogRetentionSettings from "../../../components/CippSettings/CippLogRetentionSettings";
 import CippJitAdminSettings from "../../../components/CippSettings/CippJitAdminSettings";
 const Page = () => {
   return (
@@ -35,7 +35,7 @@ const Page = () => {
           <CippBackupRetentionSettings />
         </Grid>
         <Grid size={{ lg: 4, md: 6, sm: 12, xs: 12 }}>
-          <CippBrandingSettings />
+          <CippLogRetentionSettings />
         </Grid>
         <Grid size={{ lg: 4, md: 6, sm: 12, xs: 12 }}>
           <CippJitAdminSettings />

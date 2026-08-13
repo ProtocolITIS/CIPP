@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import {
+  Alert,
   Stack,
   Box,
   Typography,
@@ -35,6 +36,33 @@ export const CippTenantModeDeploy = (props) => {
     waiting: true,
   });
 
+  // The application step mints a client secret and this step uses it moments later, but Entra
+  // can take minutes to activate a new secret. Poll until it is usable so the wait happens
+  // here, rather than the sign-in appearing to work and then failing on the token exchange
+  // with an "invalid client secret" that looks like the app was created wrong.
+  const samSecret = ApiGetCall({
+    url: `/api/ExecSamSecretStatus`,
+    queryKey: "samSecretStatus",
+    waiting: true,
+    staleTime: 0,
+  });
+  const samSecretReady = samSecret.data?.ready === true;
+  const samSecretPropagating = samSecret.data?.reason === "propagating";
+  const {
+    isSuccess: samSecretLoaded,
+    dataUpdatedAt: samSecretUpdatedAt,
+    refetch: refetchSamSecret,
+  } = samSecret;
+
+  // Re-check on a timer rather than a fixed refetchInterval so polling stops once the secret
+  // is usable - there is nothing left to wait for at that point.
+  useEffect(() => {
+    if (samSecretLoaded && !samSecretReady) {
+      const timer = setTimeout(() => refetchSamSecret(), 15000);
+      return () => clearTimeout(timer);
+    }
+  }, [samSecretLoaded, samSecretUpdatedAt, samSecretReady, refetchSamSecret]);
+
   useEffect(() => {
     if (updateRefreshToken.isSuccess) {
       formControl.setValue("GDAPAuth", true);
@@ -47,6 +75,13 @@ export const CippTenantModeDeploy = (props) => {
     }
   }, [updateRefreshToken.isSuccess, formControl, addTenant.isSuccess]);
 
+  useEffect(() => {
+    if (partnerTenantInfo?.data?.authenticatedUserPrincipalName) {
+      formControl.setValue("GDAPAuth", true);
+      formControl.trigger("GDAPAuth");
+    }
+  }, [partnerTenantInfo?.data?.authenticatedUserPrincipalName, formControl]);
+
   return (
     <Stack spacing={2}>
       {/* Partner Tenant (GDAP) */}
@@ -56,26 +91,30 @@ export const CippTenantModeDeploy = (props) => {
             Partner Tenant
           </Typography>
           <Tooltip title="Refresh partner tenant information">
-            <IconButton
-              size="small"
-              onClick={() => partnerTenantInfo.refetch()}
-              disabled={partnerTenantInfo.isLoading}
-            >
-              <Sync fontSize="small" />
-            </IconButton>
+            <span>
+              <IconButton
+                size="small"
+                onClick={() => partnerTenantInfo.refetch()}
+                disabled={partnerTenantInfo.isLoading}
+              >
+                <Sync fontSize="small" />
+              </IconButton>
+            </span>
           </Tooltip>
         </Stack>
         <Typography variant="body2" sx={{ mt: 2, mb: 2 }}>
-          Using GDAP is recommended for CIPP, however you can also authenticate to individual
-          tenants. It is required to connect to your partner tenant first, even if you are not a
-          Microsoft CSP. This is where the multi-tenant App Registration (CIPP-SAM) is installed. It
-          also allows CIPP to send notifications, perform permission checks, and update permissions
-          when required.
+          CIPP uses the partner center to automatically retrieve your tenants, however you can also
+          authenticate to individual tenants.
+        </Typography>
+        <Typography variant="body2" sx={{ mt: 2, mb: 2 }}>
+          Please logon to your partner tenant. Not a Microsoft Partner? No problem, simply enter
+          your primary tenant information. Once that's done you can add more tenants using the
+          button below.
         </Typography>
         <Typography variant="body2" sx={{ mt: 2, mb: 2 }}>
           Please remember to log onto a service account dedicated for CIPP. More info? Check out the{" "}
           <Link
-            href="https://docs.cipp.app/setup/gdap/creating-the-cipp-service-account-gdap-ready"
+            href="https://docs.cipp.app/setup/installation/creating-the-cipp-service-account-gdap-ready"
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -190,8 +229,24 @@ export const CippTenantModeDeploy = (props) => {
             </Box>
           )}
 
+        {samSecretLoaded && !samSecretReady && (
+          <Alert severity={samSecretPropagating ? "info" : "warning"} sx={{ mb: 2 }}>
+            {samSecretPropagating ? (
+              <>
+                Waiting for Microsoft to activate the application secret created in the previous
+                step. Signing in before it is active fails with an invalid client secret error, so
+                this step unlocks on its own once it is ready - usually within a few minutes.
+                Nothing needs to be recreated.
+              </>
+            ) : (
+              samSecret.data?.message
+            )}
+          </Alert>
+        )}
+
         <Box sx={{ display: "flex", justifyContent: "flex-start", mb: 2 }}>
           <CIPPM365OAuthButton
+            disabled={samSecretLoaded && !samSecretReady}
             onAuthSuccess={(tokenData) => {
               const updatedTokenData = {
                 ...tokenData,
@@ -223,12 +278,16 @@ export const CippTenantModeDeploy = (props) => {
       {/* Per-Tenant */}
       <Box>
         <Typography variant="h6" gutterBottom>
-          Per-Tenant Authentication
+          Direct Tenant Authentication
         </Typography>
         <Typography variant="body2" sx={{ mt: 2, mb: 2 }}>
-          Click the button below to connect to individual tenants. You can authenticate to multiple
-          tenants by repeating this step for each tenant you want to add. Accidentally added the
-          wrong tenant? Use the table below to remove it.
+          Click the button below to connect to individual tenants that are not in your partner
+          center, or any <strong>extra</strong> tenants you want to add if you're not a Microsoft
+          Partner.
+        </Typography>
+        <Typography variant="body2" sx={{ mt: 2, mb: 2 }}>
+          You can authenticate to multiple tenants by repeating this step for each tenant you want
+          to add.
         </Typography>
 
         {!partnerTenantInfo?.data?.orgName && (
@@ -278,18 +337,6 @@ export const CippTenantModeDeploy = (props) => {
         </Box>
 
         <CippApiResults apiObject={addTenant} />
-
-        <Box sx={{ mx: -4 }}>
-          <CippTenantTable
-            title="Authenticated Tenants"
-            tenantInTitle={false}
-            customColumns={["displayName", "defaultDomainName", "delegatedPrivilegeStatus"]}
-            showExcludeButtons={false}
-            showCardButton={false}
-            showTenantSelector={false}
-            showAllTenantsSelector={false}
-          />
-        </Box>
       </Box>
 
       <CippWizardStepButtons
